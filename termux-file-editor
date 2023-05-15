@@ -1,0 +1,57 @@
+#!/bin/bash
+
+COPIED_FILE_PATH="$1"
+
+ORIGINAL_FILE_ROOT=~/storage/dcim
+
+process() {
+    local COPIED_FILE_PATH="$1"
+    local DEST_FULL_PATH="$2"
+    echo "Processing $DEST_FULL_PATH"
+    identify -format "Resolution: %wx%h (%[fx:w*h/1000000] MP)\nSize: %b\n" "$DEST_FULL_PATH"
+    local CURR_TITLE=$(exiftool -s3 -xmp-dc:title "$DEST_FULL_PATH")
+
+    echo
+    echo "Specify title for $DEST_FULL_PATH;"
+    echo "  add a trailing ' qXX' to trigger recompression at quality XX (10-99)"
+    read -e -i "$CURR_TITLE" -p "> " NEW_TITLE_WITH_OPT_Q
+    local COMP_QUALITY=$(echo $NEW_TITLE_WITH_OPT_Q | grep -o ' q[1-9][0-9]$' | grep -o '[1-9][0-9]')
+    local NEW_TITLE=$(echo $NEW_TITLE_WITH_OPT_Q | sed 's/ q[1-9][0-9]$//')
+    echo
+    echo "New title: $NEW_TITLE"
+    
+    if [[ "$COMP_QUALITY" != "" ]]; then
+        echo "New quality: $COMP_QUALITY"
+        convert "$COPIED_FILE_PATH" -quality $COMP_QUALITY "$DEST_FULL_PATH"
+        local NEW_FILE_SIZE=$(stat -c%s "$DEST_FULL_PATH")
+        local NEW_FILE_SIZE_MB=$(echo "scale=2; $NEW_FILE_SIZE / 1024 / 1024" | bc)
+        echo "New size: ${NEW_FILE_SIZE_MB} MB"
+        rm "$COPIED_FILE_PATH"
+    else
+        echo "Not recompressing"
+        mv "$COPIED_FILE_PATH" "$DEST_FULL_PATH"
+    fi
+
+    if [[ "$NEW_TITLE" != "$CURR_TITLE" || "$COMP_QUALITY" != "" ]]; then
+        echo
+        echo "Updating title to '$NEW_TITLE'..."
+        exiftool -overwrite_original_in_place -xmp-dc:title="$NEW_TITLE" "$DEST_FULL_PATH"
+    fi
+}
+
+
+
+BASENAME=`basename $COPIED_FILE_PATH`
+FILES_WITH_SAME_NAME_IN_DCIM=($(find "$ORIGINAL_FILE_ROOT" -name "$BASENAME"))
+
+if [ ${#FILES_WITH_SAME_NAME_IN_DCIM[@]} -eq 1 ]; then
+    ORIGINAL_FILE="${FILES_WITH_SAME_NAME_IN_DCIM[0]}"
+    process "$COPIED_FILE_PATH" "$ORIGINAL_FILE"
+else
+    echo "Either no files or multiple files found."
+    echo "Matches: ${FILES_WITH_SAME_NAME_IN_DCIM[@]}"
+fi
+
+echo done.
+echo "Press any key to continue..."
+read -n 1 -s -r
